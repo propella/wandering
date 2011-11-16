@@ -42,6 +42,27 @@ function place(index, pos) {
   return {x: newX, y: curY + speedY + jit, r: newX + me.w, settled: false};
 }
 
+function makePos() {
+  return {x: Math.random() * TextFieldWidth,  // X position
+          y: Math.random() * TextFieldHeight, // Y position
+          r: 0,
+          settled: false};
+}
+
+// Initialize each character's behavior.
+// When it is the first character, it will be placed to 0,0.
+function makePosArray(posArray, i) {
+  return i == 0 ?
+      (timerE(50)
+        // (f, EventStream a) -> EventStream b
+        .mapE(function (time) {return place(0, {x: 0, y: 0, r: 0});})
+        .startsWith(makePos())) : // (EventStream a, a) -> Behavior a
+      (posArray[i-1]
+        .changes() // Behavior a -> EventStream a
+        .mapE(function (pos) {return place(i, pos);}) // (f, EventStream a) -> EventStream b
+        .startsWith(makePos())); // (EventStream a, a) -> Behavior a
+}
+
 function loader() {
 
   var ary = 'The first three years were devoted to making much smaller, simpler, and more readable versions of many of the prime parts of personal computing, including: graphics and sound, viewing/windowing, UIs, text, composition, cells, TCP/IP, etc. These have turned out well (they are chronicled in previous NSF reports and in our papers and memos).'.split('');
@@ -50,34 +71,24 @@ function loader() {
   var sp = $('space').getDimensions().width;
 
   var str = '';
-  for (i = 0; i < ary.length; i++) {
+  for (var i = 0; i < ary.length; i++) {
     str = str + '<span id=p' + i + '>' + ary[i] + '</span>';
   }
   document.body.innerHTML = str;
 
-  var elapsedTimeB = (function (x) {
-    var t = timerB(50);
-    var start = valueNow(t);
-    return t.liftB(function(x) {return x - start})})();
+  // Initialize each character
+  for (var i = 0; i < ary.length; i++) {
+    var id = 'p' + i;
+    posArray[i] = makePosArray(posArray, i);
 
-  for (i = 0; i < ary.length; i++) {
-    var f = (function() {
-      var ii = i;
-      return ii == 0 ? function (time) {return place(0, {x: 0, y: 0, r: 0})} : function (pos) {return place(ii, pos)}
-    })();
-    posArray[i] = (i == 0 ? elapsedTimeB : posArray[i-1])
-                     .changes()
-                     .mapE(f)
-                     .startsWith({x: Math.random() * TextFieldWidth, y: Math.random() * TextFieldHeight, r: 0, settled: false});
     insertDomB(
       DIV({style: { position: 'absolute',
-                    left: posArray[i].liftB(function(x) {return x.x;}),
-                    top: posArray[i].liftB(function(y) {return y.y;}) },
-           id: 'p' + i,
+                    left: posArray[i].liftB(function(pos) {return pos.x;}),
+                    top: posArray[i].liftB(function(pos) {return pos.y;}) },
+           id: id,
            b: false,
-           w: isSpace('p' + i) ? sp : $('p' + i).getDimensions().width},
+           w: isSpace(id) ? sp : $(id).getDimensions().width},
           ary[i]),
-      'p' + i);
+      id);
   }
-  console.log(posArray);
 }
