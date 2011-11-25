@@ -8,19 +8,19 @@ function isSpace(t_) {
   return $(t_).firstChild.nodeValue == ' ';
 }
 
-function place(index, pos) {
-  var me = $('p' + index);
-  var prev = index == 0 ? null : $('p' + (index - 1));
+function place(index, pos) { // pos: predecessor's pos
+  var me = $('p' + index); // This character's node
+  var prev = index == 0 ? null : $('p' + (index - 1)); // Preceding letter's node
   var prevSettled = index == 0 ? true : pos.settled;
   if (me.asked) {
     if(isSpace(prev)) {
-      me.b = true;
+      me.beginning = true;
     } else {
       prev.asked = true;
     }
   }
-  var targetX = index == 0 ? 0 : (me.b ? 0 : pos.r);
-  var targetY = index == 0 ? 0 : (me.b ? pos.y + me.getDimensions().height : pos.y);
+  var targetX = index == 0 ? 0 : (me.beginning ? 0 : pos.right);
+  var targetY = index == 0 ? 0 : (me.beginning ? pos.y + me.getDimensions().height : pos.y);
   var curX = parseFloat(me.style.getPropertyValue('left'));
   var curY = parseFloat(me.style.getPropertyValue('top'));
 
@@ -32,35 +32,63 @@ function place(index, pos) {
       if (newRight > TextFieldWidth && prevSettled) {
         prev.asked = true;
       }
-    return {x: targetX, y: targetY, r: targetX + me.w, settled: prevSettled && !(newRight > TextFieldWidth)};
+    return {x: targetX, y: targetY, right: targetX + me.width, settled: prevSettled && !(newRight > TextFieldWidth)};
   }
   var speed = Math.min(norm, SpeedLimit);
   var speedX = (diffX/norm) * speed;
   var speedY = (diffY/norm) * speed;
   var newX = curX + speedX;
   var jit = prev == null ? 0 : Math.random() * 6 - 3;
-  return {x: newX, y: curY + speedY + jit, r: newX + me.w, settled: false};
+  return {x: newX, y: curY + speedY + jit, right: newX + me.width, settled: false};
 }
 
-function makePos() {
+function place0(prevPos) {
+  var targetX = 0;
+  var targetY = 0;
+
+  var diffX = targetX - prevPos.x;
+  var diffY = targetY - prevPos.y;
+  var norm = Math.sqrt(diffX * diffX + diffY * diffY);
+
+  // The letter reaches the goal
+  if (norm < SpeedLimit) {
+    return {x: 0, y: 0, width: prevPos.width, right: prevPos.width, settled: true };
+  }
+
+  var speed = Math.min(norm, SpeedLimit);
+  var speedX = (diffX/norm) * speed;
+  var speedY = (diffY/norm) * speed;
+  var newX = prevPos.x + speedX;
+  return {x: newX, y: prevPos.y + speedY, width: prevPos.width, right: newX + prevPos.width, settled: false};
+}
+
+function makePos(i) {
+  var width = $('p' + i).getDimensions().width;
   return {x: Math.random() * TextFieldWidth,  // X position
           y: Math.random() * TextFieldHeight, // Y position
-          r: 0,
+          width: width,
+          right: 0, // right
           settled: false};
 }
 
-// Initialize each character's behavior.
+function makePosArray0() {
+  return (timerE(50)
+          .collectE(makePos(0),
+                    function(time, prev) {
+                      return place0(prev);
+                    })
+   .startsWith(makePos(0))); // (EventStream a, a) -> Behavior a
+}
+
+// Return each character's behavior.
 // When it is the first character, it will be placed to 0,0.
 function makePosArray(posArray, i) {
   return i == 0 ?
-      (timerE(50)
-        // (f, EventStream a) -> EventStream b
-        .mapE(function (time) {return place(0, {x: 0, y: 0, r: 0});})
-        .startsWith(makePos())) : // (EventStream a, a) -> Behavior a
+      makePosArray0() :
       (posArray[i-1]
         .changes() // Behavior a -> EventStream a
         .mapE(function (pos) {return place(i, pos);}) // (f, EventStream a) -> EventStream b
-        .startsWith(makePos())); // (EventStream a, a) -> Behavior a
+        .startsWith(makePos(i))); // (EventStream a, a) -> Behavior a
 }
 
 function loader() {
@@ -86,8 +114,8 @@ function loader() {
                     left: posArray[i].liftB(function(pos) {return pos.x;}),
                     top: posArray[i].liftB(function(pos) {return pos.y;}) },
            id: id,
-           b: false,
-           w: isSpace(id) ? sp : $(id).getDimensions().width},
+           beginning: false, // 行の最初
+           width: isSpace(id) ? sp : $(id).getDimensions().width},
           ary[i]),
       id);
   }
