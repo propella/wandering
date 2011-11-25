@@ -2,44 +2,46 @@
 
 var TextFieldWidth = 300;
 var TextFieldHeight = 300;
+var SPACE_WIDTH = 0;
 var SpeedLimit = 13;
 
 function isSpace(t_) {
   return $(t_).firstChild.nodeValue == ' ';
 }
 
-function place(index, pos) { // pos: predecessor's pos
+function place(index, pos, prevPos) { // pos: predecessor's pos
   var me = $('p' + index); // This character's node
-  var prev = index == 0 ? null : $('p' + (index - 1)); // Preceding letter's node
-  var prevSettled = index == 0 ? true : pos.settled;
+  var prev = $('p' + (index - 1)); // Preceding letter's node
+  var prevSettled = pos.settled;
+  var newBeginning = prevPos.beginning;
   if (me.asked) {
     if(isSpace(prev)) {
-      me.beginning = true;
+      newBeginning = true;
     } else {
       prev.asked = true;
     }
   }
-  var targetX = index == 0 ? 0 : (me.beginning ? 0 : pos.right);
-  var targetY = index == 0 ? 0 : (me.beginning ? pos.y + me.getDimensions().height : pos.y);
-  var curX = parseFloat(me.style.getPropertyValue('left'));
-  var curY = parseFloat(me.style.getPropertyValue('top'));
+  var targetX = newBeginning ? 0 : pos.right;
+  var targetY = newBeginning ? pos.y + prevPos.height : pos.y;
+  var curX = prevPos.x;
+  var curY = prevPos.y;
 
   var diffX = targetX - curX;
   var diffY = targetY - curY;
   var norm = Math.sqrt(diffX * diffX + diffY * diffY);
   if (norm < SpeedLimit) {
-    var newRight = targetX + me.getDimensions().width;
+    var newRight = targetX + prevPos.width;
       if (newRight > TextFieldWidth && prevSettled) {
         prev.asked = true;
       }
-    return {x: targetX, y: targetY, right: targetX + me.width, settled: prevSettled && !(newRight > TextFieldWidth)};
+    return {x: targetX, y: targetY, width: prevPos.width, height: prevPos.height, right: targetX + prevPos.width, beginning: newBeginning, settled: prevSettled && !(newRight > TextFieldWidth)};
   }
   var speed = Math.min(norm, SpeedLimit);
   var speedX = (diffX/norm) * speed;
   var speedY = (diffY/norm) * speed;
   var newX = curX + speedX;
-  var jit = prev == null ? 0 : Math.random() * 6 - 3;
-  return {x: newX, y: curY + speedY + jit, right: newX + me.width, settled: false};
+  var jit = Math.random() * 6 - 3;
+  return {x: newX, y: curY + speedY + jit, width: prevPos.width, height: prevPos.height, right: newX + prevPos.width, beginning: newBeginning, settled: false};
 }
 
 function place0(prevPos) {
@@ -63,11 +65,17 @@ function place0(prevPos) {
 }
 
 function makePos(i) {
-  var width = $('p' + i).getDimensions().width;
+//  var width = $('p' + i).getDimensions().width;
+  var id = 'p' + i;
+  var width = isSpace(id) ? SPACE_WIDTH : $(id).getDimensions().width;
+  var height = $(id).getDimensions().height;
+
   return {x: Math.random() * TextFieldWidth,  // X position
           y: Math.random() * TextFieldHeight, // Y position
           width: width,
+          height: height,
           right: 0, // right
+          beginning: false, // the beginning of the line
           settled: false};
 }
 
@@ -87,7 +95,12 @@ function makePosArray(posArray, i) {
       makePosArray0() :
       (posArray[i-1]
         .changes() // Behavior a -> EventStream a
-        .mapE(function (pos) {return place(i, pos);}) // (f, EventStream a) -> EventStream b
+        .collectE(makePos(i),
+          function(pos, prev) {
+            return place(i, pos, prev);
+          })
+
+//        .mapE(function (pos) {return place(i, pos);}) // (f, EventStream a) -> EventStream b
         .startsWith(makePos(i))); // (EventStream a, a) -> Behavior a
 }
 
@@ -97,6 +110,7 @@ function loader() {
   var posArray = new Array(ary.length);
 
   var sp = $('space').getDimensions().width;
+  SPACE_WIDTH = $('space').getDimensions().width;
 
   var str = '';
   for (var i = 0; i < ary.length; i++) {
