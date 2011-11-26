@@ -1,6 +1,7 @@
 // Wandering Letters by Yoshiki Ohshima
 
 var TextFieldWidth = 300;
+// var TextFieldWidth = 80;
 var TextFieldHeight = 300;
 var SPACE_WIDTH = 0;
 var SpeedLimit = 13;
@@ -11,7 +12,7 @@ function isSpace(t_) {
 
 function place(index, pos, prevPos) { // pos: predecessor's pos
   var me = $('p' + index); // This character's node
-  var prev = $('p' + (index - 1)); // Preceding letter's node
+  var prev = index == 0 ? {} : $('p' + (index - 1)); // Preceding letter's node
   var prevSettled = pos.settled;
   var newBeginning = prevPos.beginning;
   if (me.asked) {
@@ -29,11 +30,14 @@ function place(index, pos, prevPos) { // pos: predecessor's pos
   var diffX = targetX - curX;
   var diffY = targetY - curY;
   var norm = Math.sqrt(diffX * diffX + diffY * diffY);
+
+  // The letter reached the goal
   if (norm < SpeedLimit) {
     var newRight = targetX + prevPos.width;
-      if (newRight > TextFieldWidth && prevSettled) {
-        prev.asked = true;
-      }
+    // The letter passed the TextFieldWidth
+    if (newRight > TextFieldWidth && prevSettled) {
+      prev.asked = true;
+    }
     return {x: targetX, y: targetY, width: prevPos.width, height: prevPos.height, right: targetX + prevPos.width, beginning: newBeginning, settled: prevSettled && !(newRight > TextFieldWidth)};
   }
   var speed = Math.min(norm, SpeedLimit);
@@ -44,28 +48,7 @@ function place(index, pos, prevPos) { // pos: predecessor's pos
   return {x: newX, y: curY + speedY + jit, width: prevPos.width, height: prevPos.height, right: newX + prevPos.width, beginning: newBeginning, settled: false};
 }
 
-function place0(prevPos) {
-  var targetX = 0;
-  var targetY = 0;
-
-  var diffX = targetX - prevPos.x;
-  var diffY = targetY - prevPos.y;
-  var norm = Math.sqrt(diffX * diffX + diffY * diffY);
-
-  // The letter reaches the goal
-  if (norm < SpeedLimit) {
-    return {x: 0, y: 0, width: prevPos.width, right: prevPos.width, settled: true };
-  }
-
-  var speed = Math.min(norm, SpeedLimit);
-  var speedX = (diffX/norm) * speed;
-  var speedY = (diffY/norm) * speed;
-  var newX = prevPos.x + speedX;
-  return {x: newX, y: prevPos.y + speedY, width: prevPos.width, right: newX + prevPos.width, settled: false};
-}
-
 function makePos(i) {
-//  var width = $('p' + i).getDimensions().width;
   var id = 'p' + i;
   var width = isSpace(id) ? SPACE_WIDTH : $(id).getDimensions().width;
   var height = $(id).getDimensions().height;
@@ -79,37 +62,39 @@ function makePos(i) {
           settled: false};
 }
 
+// Return a Behavior with timer and the first anchor
 function makePosArray0() {
-  return (timerE(50)
-          .collectE(makePos(0),
-                    function(time, prev) {
-                      return place0(prev);
-                    })
-   .startsWith(makePos(0))); // (EventStream a, a) -> Behavior a
+  return timerB(50).liftB(
+    function (time) {
+      return {x: 0,
+              y: 0,
+              width: 0,
+              height: 0,
+              right: 0,
+              beginning: false, // the beginning of the line
+              settled: true};
+    });
 }
 
 // Return each character's behavior.
 // When it is the first character, it will be placed to 0,0.
 function makePosArray(posArray, i) {
-  return i == 0 ?
-      makePosArray0() :
-      (posArray[i-1]
-        .changes() // Behavior a -> EventStream a
-        .collectE(makePos(i),
-          function(pos, prev) {
-            return place(i, pos, prev);
-          })
-
-//        .mapE(function (pos) {return place(i, pos);}) // (f, EventStream a) -> EventStream b
-        .startsWith(makePos(i))); // (EventStream a, a) -> Behavior a
+  var prevBehavior = i == 0 ? makePosArray0() : posArray[i - 1];
+  return prevBehavior
+    .changes() // Behavior a -> EventStream a
+    .collectE(makePos(i), function(pred, past) {
+                            return place(i, pred, past);
+                          })
+    .startsWith(makePos(i)); // (EventStream a, a) -> Behavior a
 }
 
 function loader() {
 
   var ary = 'The first three years were devoted to making much smaller, simpler, and more readable versions of many of the prime parts of personal computing, including: graphics and sound, viewing/windowing, UIs, text, composition, cells, TCP/IP, etc. These have turned out well (they are chronicled in previous NSF reports and in our papers and memos).'.split('');
+//  var ary = 'The first three'.split('');
+
   var posArray = new Array(ary.length);
 
-  var sp = $('space').getDimensions().width;
   SPACE_WIDTH = $('space').getDimensions().width;
 
   var str = '';
@@ -127,9 +112,7 @@ function loader() {
       DIV({style: { position: 'absolute',
                     left: posArray[i].liftB(function(pos) {return pos.x;}),
                     top: posArray[i].liftB(function(pos) {return pos.y;}) },
-           id: id,
-           beginning: false, // 行の最初
-           width: isSpace(id) ? sp : $(id).getDimensions().width},
+           id: id},
           ary[i]),
       id);
   }
