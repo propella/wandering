@@ -1,31 +1,26 @@
 // Wandering Letters by Yoshiki Ohshima
 
 var TextFieldWidth = 300;
-// var TextFieldWidth = 80;
+// var TextFieldWidth = 150;
 var TextFieldHeight = 300;
 var SPACE_WIDTH = 0;
 var SpeedLimit = 13;
 
-function isSpace(t_) {
-  return $(t_).firstChild.nodeValue == ' ';
-}
+function place(pred, old) { // pred: predecessor letter
+  var newBeginning = old.beginning;
 
-function place(index, pos, prevPos) { // pos: predecessor's pos
-  var me = $('p' + index); // This character's node
-  var prev = index == 0 ? {} : $('p' + (index - 1)); // Preceding letter's node
-  var prevSettled = pos.settled;
-  var newBeginning = prevPos.beginning;
-  if (me.asked) {
-    if(isSpace(prev)) {
+  if (old.asked) {
+    if(pred.isSpace) {
       newBeginning = true;
     } else {
-      prev.asked = true;
+      pred.asked = true;
     }
   }
-  var targetX = newBeginning ? 0 : pos.right;
-  var targetY = newBeginning ? pos.y + prevPos.height : pos.y;
-  var curX = prevPos.x;
-  var curY = prevPos.y;
+
+  var targetX = newBeginning ? 0 : pred.right;
+  var targetY = newBeginning ? pred.y + old.height : pred.y;
+  var curX = old.x;
+  var curY = old.y;
 
   var diffX = targetX - curX;
   var diffY = targetY - curY;
@@ -33,24 +28,27 @@ function place(index, pos, prevPos) { // pos: predecessor's pos
 
   // The letter reached the goal
   if (norm < SpeedLimit) {
-    var newRight = targetX + prevPos.width;
+    var newRight = targetX + old.width;
     // The letter passed the TextFieldWidth
-    if (newRight > TextFieldWidth && prevSettled) {
-      prev.asked = true;
+    if (newRight > TextFieldWidth && pred.settled) {
+      pred.asked = true;
     }
-    return {x: targetX, y: targetY, width: prevPos.width, height: prevPos.height, right: targetX + prevPos.width, beginning: newBeginning, settled: prevSettled && !(newRight > TextFieldWidth)};
+    return {x: targetX, y: targetY, width: old.width, height: old.height, right: targetX + old.width, isSpace: old.isSpace, beginning: newBeginning, settled: pred.settled && !(newRight > TextFieldWidth), asked: old.asked};
   }
   var speed = Math.min(norm, SpeedLimit);
   var speedX = (diffX/norm) * speed;
   var speedY = (diffY/norm) * speed;
   var newX = curX + speedX;
   var jit = Math.random() * 6 - 3;
-  return {x: newX, y: curY + speedY + jit, width: prevPos.width, height: prevPos.height, right: newX + prevPos.width, beginning: newBeginning, settled: false};
+  return {x: newX, y: curY + speedY + jit, width: old.width, height: old.height, right: newX + old.width, isSpace: old.isSpace, beginning: newBeginning, settled: false, asked: old.asked};
 }
 
-function makePos(i) {
+// Return a Letter structure
+function makeLetter(i) {
+
   var id = 'p' + i;
-  var width = isSpace(id) ? SPACE_WIDTH : $(id).getDimensions().width;
+  var isSpace = $(id).firstChild.nodeValue == ' ';
+  var width = isSpace ? SPACE_WIDTH : $(id).getDimensions().width;
   var height = $(id).getDimensions().height;
 
   return {x: Math.random() * TextFieldWidth,  // X position
@@ -58,12 +56,14 @@ function makePos(i) {
           width: width,
           height: height,
           right: 0, // right
-          beginning: false, // the beginning of the line
-          settled: false};
+          isSpace: isSpace, // True if this is a space.
+          beginning: false, // True if this is the beginning of the line
+          settled: false,
+          asked: false}; // True if the word including this should go new line.
 }
 
 // Return a Behavior with timer and the first anchor
-function makePosArray0() {
+function makeLetter0() {
   return timerB(50).liftB(
     function (time) {
       return {x: 0,
@@ -71,29 +71,26 @@ function makePosArray0() {
               width: 0,
               height: 0,
               right: 0,
+              isSpace: false,
               beginning: false, // the beginning of the line
-              settled: true};
+              settled: true,
+              asked: false};
     });
 }
 
 // Return each character's behavior.
 // When it is the first character, it will be placed to 0,0.
-function makePosArray(posArray, i) {
-  var prevBehavior = i == 0 ? makePosArray0() : posArray[i - 1];
+function makeBehavior(behaviors, i) {
+  var prevBehavior = i == 0 ? makeLetter0() : behaviors[i - 1];
   return prevBehavior
     .changes() // Behavior a -> EventStream a
-    .collectE(makePos(i), function(pred, past) {
-                            return place(i, pred, past);
-                          })
-    .startsWith(makePos(i)); // (EventStream a, a) -> Behavior a
+    .collectE(makeLetter(i), function(pred, old) { return place(pred, old); })
+    .startsWith({}); // (EventStream a, a) -> Behavior a
 }
 
 function loader() {
 
   var ary = 'The first three years were devoted to making much smaller, simpler, and more readable versions of many of the prime parts of personal computing, including: graphics and sound, viewing/windowing, UIs, text, composition, cells, TCP/IP, etc. These have turned out well (they are chronicled in previous NSF reports and in our papers and memos).'.split('');
-//  var ary = 'The first three'.split('');
-
-  var posArray = new Array(ary.length);
 
   SPACE_WIDTH = $('space').getDimensions().width;
 
@@ -103,15 +100,16 @@ function loader() {
   }
   document.body.innerHTML = str;
 
-  // Initialize each character
+  // Initialize each letter
+  var behaviors = new Array(ary.length);
   for (var i = 0; i < ary.length; i++) {
     var id = 'p' + i;
-    posArray[i] = makePosArray(posArray, i);
+    behaviors[i] = makeBehavior(behaviors, i);
 
     insertDomB(
       DIV({style: { position: 'absolute',
-                    left: posArray[i].liftB(function(pos) {return pos.x;}),
-                    top: posArray[i].liftB(function(pos) {return pos.y;}) },
+                    left: behaviors[i].liftB(function(pos) {return pos.x;}),
+                    top: behaviors[i].liftB(function(pos) {return pos.y;}) },
            id: id},
           ary[i]),
       id);
